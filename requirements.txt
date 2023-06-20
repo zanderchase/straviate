@@ -1,0 +1,7 @@
+langchain
+openai
+chromadb
+unstructured
+unstructured-inference
+faiss-cpu
+google-search-result

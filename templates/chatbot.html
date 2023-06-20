@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Strava Demo</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+
+    .data-container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      text-align: center;
+      margin-top: 0;
+      margin-bottom: 20px;
+    }
+
+    .chat-log {
+      max-height: 400px;
+      overflow-y: scroll;
+    }
+
+    .chat-input {
+      display: flex;
+      margin-top: 20px;
+    }
+
+    .chat-input input[type="text"] {
+      flex-grow: 1;
+      margin-right: 10px;
+      padding: 10px;
+      border-radius: 5px;
+      border: none;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .chat-input input[type="submit"] {
+      padding: 10px 20px;
+      border-radius: 5px;
+      border: none;
+      background-color: #ff8800;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    .chat-input input[type="submit"]:hover {
+      background-color: #f6ac22;
+    }
+
+    .big-container {
+      display: flex;
+    }
+
+    .charts-container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-container {
+      width: 500px;
+      /* Adjust the width as per your preference */
+      height: 400px;
+      /* Adjust the height as per your preference */
+      margin-left: 20px;
+      /* Adjust the spacing between the charts */
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Load your activities</h1>
+  <p id="text">{{ my_string }}</p>
+  <form method="get" action="{{ url_for('athlete_activities') }}">
+    <button type="submit">refresh</button>
+  </form>
+  <h1>Set API Key</h1>
+  <p id="text">{{ api_string }}</p>
+  <form method="post" action="/set-api-key">
+    <input type="text" name="api_key" placeholder="Your OPEN_API_KEY" required>
+    <button type="submit">Set OPEN_API_KEY</button>
+  </form>
+  <div class="big-container">
+    <div class="charts-container">
+
+      <div class="chart-container">
+        <h2>Data viz</h2>
+        <canvas id="distanceChart"></canvas>
+      </div>
+
+      <div class="chart-container">
+        <canvas id="weekChart"></canvas>
+      </div>
+    </div>
+
+    <script>
+      fetch('/dataviz', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+        .then(response => response.json())
+        .then(data => {
+          const output = data;
+          console.log(output);
+
+          output.sort((a, b) => new Date(a["start date"]) - new Date(b["start date"]));
+          // Extract the start dates and distances from the data
+          const startDateLabels = output.map(entry => entry["start date"]);
+          const distances = output.map(entry => parseFloat(entry["distance (miles)"]));
+
+          // Find the lowest and highest dates
+          const lowestDate = startDateLabels[0];
+          const highestDate = startDateLabels[startDateLabels.length - 1];
+
+          // Generate a complete list of dates within the range
+          const allDates = [];
+          let currentDate = new Date(lowestDate);
+
+          while (currentDate <= new Date(highestDate)) {
+            allDates.push(currentDate.toISOString().slice(0, 10));
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+
+          // Create a new array with distances for all dates, accounting for missing dates
+          const allDistances = allDates.map(date => {
+            const index = startDateLabels.indexOf(date);
+            return index !== -1 ? distances[index] : 0;
+          });
+
+          // Generate an array of colors for each bar
+
+          const barColors = allDates.map(date => {
+            const weekNumber = getWeekNumber(new Date(date))
+            // Define the condition for color assignment based on distance
+            if (weekNumber == 1) {
+              return "rgba(255, 99, 132, 0.5)"; // Red color for week 1
+            } else if (weekNumber == 2) {
+              return "rgba(54, 162, 235, 0.5)"; // Blue color for week 2
+            } else {
+              return "rgba(75, 192, 192, 0.5)"; // Green color for other weeks
+            }
+          });
+
+          // Create the bar chart
+          new Chart(document.getElementById("distanceChart"), {
+            type: "bar",
+            //indexAxis: 'y',
+            data: {
+              labels: allDates,
+              datasets: [
+                {
+                  label: "Distance (miles)",
+                  data: allDistances,
+                  backgroundColor: "rgba(54, 162, 235, 0.5)",
+                  borderColor: "rgba(54, 162, 235, 1)",
+                  borderWidth: 1
+                }
+              ]
+            },
+            options: {
+              scales: {
+                y: {
+                  beginAtZero: true
+                }
+              }
+            }
+          });
+
+
+
+
+          weekDict = new Map;
+          for (let i = 0; i < allDates.length; i++) {
+            weekNumber = getWeekNumber(new Date(allDates[i]))
+            if (weekDict.has(weekNumber)) {
+              weekDict.set(weekNumber, weekDict.get(weekNumber) + allDistances[i])
+            }
+            else {
+              weekDict.set(weekNumber, allDistances[i])
+            }
+          }
+
+          const week = []
+          const totalDistance = []
+          for (let [key, value] of weekDict) {
+            week.push("week " + key)
+            totalDistance.push(value)
+          }
+
+
+          // Create the bar chart
+          new Chart(document.getElementById("weekChart"), {
+            type: "bar",
+            data: {
+              labels: week,
+              datasets: [
+                {
+                  label: "Weekly Distance (miles)",
+                  data: totalDistance,
+                  backgroundColor: "rgba(54, 162, 235, 0.5)",
+                  borderColor: "rgba(54, 162, 235, 1)",
+                  borderWidth: 1
+                }
+              ]
+            },
+            options: {
+              indexAxis: 'y',
+              scales: {
+                y: {
+                  beginAtZero: true
+                }
+              }
+            }
+          });
+
+        });
+      // Function to get the week number for a given date
+      function getWeekNumber(date) {
+        const today = new Date();
+        const yearStart = new Date(date.getFullYear(), 0, 1);
+        const weekNumber = Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+        return weekNumber;
+      }
+
+    </script>
+
+
+
+    <div class="container">
+      <h1>Chat Strava Demo</h1>
+      <div class="chat-log">
+      </div>
+      <form class="chat-input">
+        <input type="text" id="chat-input-field" autocomplete="off">
+        <input type="submit" value="Send">
+      </form>
+    </div>
+    <script>
+      const chatLog = document.querySelector('.chat-log');
+      const chatInputForm = document.querySelector('.chat-input');
+      const chatInputField = document.querySelector('#chat-input-field');
+      const output = "Hey there Zander, how are you doing?";
+      addMessage('Chatbot: ', output);
+      chatInputForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const query = chatInputField.value;
+        chatInputField.value = '';
+        addMessage('You: ', query);
+
+        fetch('/langchain', {
+          method: 'POST',
+          body: JSON.stringify({ 'query': query }),
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+          .then(response => response.text())
+          .then(data => {
+            const output = data;
+            addMessage('Chatbot: ', output);
+          });
+      });
+
+      function addMessage(sender, message) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('chat-message');
+
+        const senderElement = document.createElement('span');
+        senderElement.classList.add('chat-sender');
+        senderElement.innerText = sender;
+
+        const messageTextElement = document.createElement('span');
+        messageTextElement.classList.add('chat-message-text');
+        messageTextElement.innerText = message;
+
+        messageElement.appendChild(senderElement);
+        messageElement.appendChild(messageTextElement);
+        chatLog.appendChild(messageElement);
+      }
+    </script>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
+</body>
+
+</html>
